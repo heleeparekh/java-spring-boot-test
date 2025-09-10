@@ -14,27 +14,36 @@ import java.util.Map;
 @Service
 public class TokenService {
   private final WebClient http = WebClient.builder().build();
-  private final ApigeeProperties cfg;
+  private final AppProperties props;
 
-  public TokenService(ApigeeProperties cfg) { this.cfg = cfg; }
+  public TokenService(AppProperties props) { this.props = props; }
 
-  /** Super-simple: mint a fresh token every time (no caching). */
+  /** Simple version: mint a fresh token every call (blocking). */
   public String getBearerToken() {
+    if (props.getApigeeTokenUrl() == null ||
+        props.getApigeeConsumerKey() == null ||
+        props.getApigeeConsumerSecret() == null) {
+      throw new IllegalStateException("Missing Apigee settings in app.* (tokenUrl/consumerKey/consumerSecret).");
+    }
+
     String basic = Base64.getEncoder().encodeToString(
-        (cfg.getConsumerKey() + ":" + cfg.getConsumerSecret()).getBytes(StandardCharsets.UTF_8));
+        (props.getApigeeConsumerKey() + ":" + props.getApigeeConsumerSecret()).getBytes(StandardCharsets.UTF_8));
 
     MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
     form.add("grant_type", "client_credentials");
 
     Map resp = http.post()
-        .uri(cfg.getTokenUrl())
+        .uri(props.getApigeeTokenUrl())
         .header(HttpHeaders.AUTHORIZATION, "Basic " + basic)
         .contentType(MediaType.APPLICATION_FORM_URLENCODED)
         .bodyValue(form)
         .retrieve()
         .bodyToMono(Map.class)
-        .block(); // ok here since your app already blocks
+        .block();
 
-    return resp == null ? null : String.valueOf(resp.get("access_token"));
+    if (resp == null || !resp.containsKey("access_token")) {
+      throw new IllegalStateException("Apigee token response missing access_token");
+    }
+    return String.valueOf(resp.get("access_token"));
   }
 }
