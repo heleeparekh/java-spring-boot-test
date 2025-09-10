@@ -1,53 +1,22 @@
-String assistantText = extractAssistantText(resp); // helper shown below
-if (assistantText == null) assistantText = resp;   // fall back to raw JSON
-
-span.setAttribute("openinference.output_value", truncate(assistantText, 4000));
-span.setAttribute("llm.output_messages.0.message.role", "assistant");
-span.setAttribute("llm.output_messages.0.message.content", truncate(assistantText, 4000));
-span.setStatus(StatusCode.OK);
-
-// Parse usage if the API returns it (see helper below)
 setUsageFromResponse(span, resp);
-
-
-private String extractAssistantText(String respJson) {
-  try {
-    JsonNode r = mapper.readTree(respJson);
-    // OpenAI-like
-    if (r.has("choices") && r.get("choices").isArray() && r.get("choices").size() > 0) {
-      JsonNode msg = r.get("choices").get(0).path("message");
-      if (!msg.isMissingNode()) return msg.path("content").asText(null);
-      // older OpenAI: "text" on the choice
-      String t = r.get("choices").get(0).path("text").asText(null);
-      if (t != null) return t;
-    }
-    // Google/others patterns
-    if (r.hasNonNull("output_text")) return r.get("output_text").asText();
-    if (r.has("candidates") && r.get("candidates").isArray() && r.get("candidates").size() > 0) {
-      String t = r.get("candidates").get(0).path("content").asText(null);
-      if (t != null) return t;
-    }
-  } catch (Exception ignored) {}
-  return null;
-}
 
 private void setUsageFromResponse(Span span, String respJson) {
   try {
     JsonNode r = mapper.readTree(respJson);
     JsonNode usage = r.path("usage");
-    if (!usage.isObject()) return;
+    if (!usage.isObject() && r.has("choices") && r.get("choices").isArray()) {
+      usage = r.get("choices").get(0).path("usage");
+    }
+    long inTok  = usage.path("input_tokens").asLong(usage.path("prompt_tokens").asLong(0));
+    long outTok = usage.path("output_tokens").asLong(usage.path("completion_tokens").asLong(0));
+    long totTok = usage.path("total_tokens").asLong(inTok + outTok);
 
-    // Common names
-    long prompt = usage.path("prompt_tokens").asLong(usage.path("input_tokens").asLong(0));
-    long completion = usage.path("completion_tokens").asLong(usage.path("output_tokens").asLong(0));
-    long total = usage.path("total_tokens").asLong(prompt + completion);
+    span.setAttribute("llm.usage.input_tokens", inTok);
+    span.setAttribute("llm.usage.output_tokens", outTok);
+    span.setAttribute("llm.usage.total_tokens", totTok);
 
-    // Set BOTH naming styles for maximum compatibility
-    span.setAttribute("llm.usage.prompt_tokens", prompt);
-    span.setAttribute("llm.usage.completion_tokens", completion);
-    span.setAttribute("llm.usage.total_tokens", total);
-
-    span.setAttribute("llm.usage.input_tokens", prompt);
-    span.setAttribute("llm.usage.output_tokens", completion);
+    // optional synonyms
+    span.setAttribute("llm.usage.prompt_tokens", inTok);
+    span.setAttribute("llm.usage.completion_tokens", outTok);
   } catch (Exception ignored) {}
 }
