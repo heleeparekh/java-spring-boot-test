@@ -1,3 +1,15 @@
+String assistantText = extractAssistantText(resp); // helper shown below
+if (assistantText == null) assistantText = resp;   // fall back to raw JSON
+
+span.setAttribute("openinference.output_value", truncate(assistantText, 4000));
+span.setAttribute("llm.output_messages.0.message.role", "assistant");
+span.setAttribute("llm.output_messages.0.message.content", truncate(assistantText, 4000));
+span.setStatus(StatusCode.OK);
+
+// Parse usage if the API returns it (see helper below)
+setUsageFromResponse(span, resp);
+
+
 private String extractAssistantText(String respJson) {
   try {
     JsonNode r = mapper.readTree(respJson);
